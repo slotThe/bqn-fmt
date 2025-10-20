@@ -61,7 +61,7 @@ fn replace(inp: &str, from: &[String], to: &[String]) -> String {
         })
     }
 
-    Regex::new(r#"(#[^\n]*(?:\n|$))|((?:[^'])"(?:[^"]|"")*")"#) // excludes
+    Regex::new(r#"(?m:((?:^|[^'])#[^\n]*(?:\n|$))|((?:^|[^'])"(?:[^"]|"")*"))"#) // excludes
         .unwrap()
         .captures_iter(inp)
         .map(|c| c.get(0).unwrap())
@@ -207,5 +207,13 @@ s ← "a string mul and ""so on ×"""
         let (glyphs, words) = expand(&GLYPHS_WORDS);
         let s = r#"sss'"'sss'"'sss"#;
         assert!(r#"𝕤'"'𝕤'"'𝕤"# == replace(s, &words, &glyphs));
+    }
+
+    #[test]
+    fn char_hash() {
+        use super::*;
+        let (glyphs, words) = expand(&GLYPHS_WORDS);
+        let s = r#"sss'#'sss"#;
+        assert!(r#"𝕤'#'𝕤"# == replace(s, &words, &glyphs));
     }
 }
