@@ -61,7 +61,9 @@ fn replace(inp: &str, from: &[String], to: &[String]) -> String {
         })
     }
 
-    Regex::new(r#"(?m:((?:^|[^'])#[^\n]*(?:\n|$))|((?:^|[^'])"(?:[^"]|"")*"))"#) // excludes
+    let commnt = r#"((^|[^'])#[^\n]*(\n|$))"#;
+    let string = r#"""|"(""|[^'])([^"]|"")*""#;
+    Regex::new(&format!("(?m:{commnt}|{string})")) // excludes
         .unwrap()
         .captures_iter(inp)
         .map(|c| c.get(0).unwrap())
@@ -215,5 +217,15 @@ s ← "a string mul and ""so on ×"""
         let (glyphs, words) = expand(&GLYPHS_WORDS);
         let s = r#"sss'#'sss"#;
         assert!(r#"𝕤'#'𝕤"# == replace(s, &words, &glyphs));
+    }
+
+    #[test]
+    fn char_string_concat() {
+        use super::*;
+        let (glyphs, words) = expand(&GLYPHS_WORDS);
+        let s1 = r#"-⟜'#'"not""#;
+        assert!(s1 == replace(s1, &words, &glyphs));
+        let s2 = r#"negateafter'#'"mul""not""fold"add"#;
+        assert!(r#"-⟜'#'"mul""not""fold"+"# == replace(s2, &words, &glyphs));
     }
 }
