@@ -43,7 +43,7 @@ fn expand(inp: &[(&str, Vec<Vec<&str>>)]) -> (Vec<String>, Vec<String>) {
 
 /// Replace words with symbols.
 fn replace(inp: &str, from: &[String], to: &[String]) -> String {
-    let mut res = String::new();
+    let mut res = String::with_capacity(inp.len()); // res is shorter
     let mut end = 0;
     let repl = AhoCorasick::builder()
         .match_kind(MatchKind::LeftmostLongest)
