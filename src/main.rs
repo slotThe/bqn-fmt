@@ -1,7 +1,7 @@
-use aho_corasick::{AhoCorasick, MatchKind};
+use std::{io::{Read, Write}, iter, sync::LazyLock};
+
+use aho_corasick::{AhoCorasick, Match, MatchKind};
 use regex::Regex;
-use std::io::{Read, Write};
-use std::{iter, sync::LazyLock};
 
 fn main() {
     let mut stdin = std::io::stdin();
@@ -50,21 +50,6 @@ fn replace(inp: &str, from: &[String], to: &[String]) -> String {
         .build(from)
         .unwrap();
 
-    fn rep_with(repl: &AhoCorasick, slice: &str, to: &[String], res: &mut String) {
-        repl.replace_all_with(slice, res, |mat, matstr, dst| {
-            // Don't replace string if the char before the match is an
-            // underscore; this is to prevent _add being changed into _+.
-            // Some examples of this are in the BQN stdlib.
-            let i = mat.start().max(1) - 1;
-            if Some("_") == slice.get(i..i + 1) {
-                dst.push_str(matstr.as_ref());
-            } else {
-                dst.push_str(to[mat.pattern()].as_ref());
-            }
-            true
-        })
-    }
-
     let commnt = r#"((^|[^'])#[^\n]*(\n|$))"#;
     let string = r#"""|"(""|[^'])([^"]|"")*""#;
     Regex::new(&format!("(?m:{commnt}|{string})")) // excludes
@@ -72,13 +57,48 @@ fn replace(inp: &str, from: &[String], to: &[String]) -> String {
         .captures_iter(inp)
         .map(|c| c.get(0).unwrap())
         .for_each(|e| {
-            rep_with(&repl, &inp[end..e.start()], to, &mut res); // Region before match -> replace.
+            replace_slice(&repl, &inp[end..e.start()], to, &mut res); // Region before match -> replace.
             res.push_str(e.as_str()); // Add last excluded region unchanged.
             end = e.end();
         });
-    rep_with(&repl, &inp[end..inp.len()], to, &mut res); // Add final region.
+    replace_slice(&repl, &inp[end..inp.len()], to, &mut res); // Add final region.
 
     res
+}
+
+/// Replace a single slice.
+fn replace_slice(repl: &AhoCorasick, slice: &str, to: &[String], res: &mut String) {
+    let mut dst = String::with_capacity(slice.len());
+    let matches: Vec<Match> = repl.find_iter(slice).collect();
+    let mut lm = 0; // last match
+
+    for (i, m) in matches.iter().enumerate() {
+        dst.push_str(&slice[lm..m.start()]);
+        lm = m.end();
+        if dst.ends_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            || unknown_expansion_in_word(slice, &matches, m, i)
+        {
+            dst.push_str(&slice[m.start()..m.end()]);
+        } else {
+            dst.push_str(to[m.pattern()].as_ref());
+        }
+    }
+    dst.push_str(&slice[lm..]);
+
+    res.push_str(&dst);
+}
+
+/// Is there an unknown expansion in the first word of the given slice?
+fn unknown_expansion_in_word(slice: &str, ms: &[Match], m: &Match, i: usize) -> bool {
+    let max: usize = m.end()
+        + slice[m.end()..]
+            .find(|c: char| !c.is_ascii_alphabetic())
+            .unwrap_or(slice[m.end()..].len());
+    let ends: Vec<&Match> = ms[i..].iter().take_while(move |n| n.end() <= max).collect();
+    // First condition shields against adddivunknown and second one is for
+    // addunknowndiv.
+    ends[ends.len() - 1].end() != max
+        || ends.windows(2).any(|xy| xy[0].end() != xy[1].start())
 }
 
 #[allow(clippy::type_complexity)]
@@ -227,9 +247,23 @@ s ← "a string mul and ""so on ×"""
     fn char_string_concat() {
         use super::*;
         let (glyphs, words) = expand(&GLYPHS_WORDS);
+        assert!("\"not\"'#'¬" == replace("\"not\"'#'not", &words, &glyphs));
         let s1 = r#"-⟜'#'"not""#;
         assert!(s1 == replace(s1, &words, &glyphs));
         let s2 = r#"negateafter'#'"mul""not""fold"add"#;
         assert!(r#"-⟜'#'"mul""not""fold"+"# == replace(s2, &words, &glyphs));
+    }
+
+    #[test]
+    fn dont_expand_unknown_vars() {
+        use super::*;
+        let (glyphs, words) = expand(&GLYPHS_WORDS);
+        assert!("xxWord +´÷≠" == replace("xxWord addfolddivlen", &words, &glyphs));
+        assert!("wordxx" == replace("wordxx", &words, &glyphs));
+        assert!("addfoldWord" == replace("addfoldWord", &words, &glyphs));
+        assert!("|10" == replace("mod10", &words, &glyphs));
+        assert!("1⌽⌽𝕩" == replace("1⌽reve𝕩", &words, &glyphs));
+        assert!("+´" == replace("addfold", &words, &glyphs));
+        assert!("addunknownadd ×´" == replace("addunknownadd mulfold", &words, &glyphs));
     }
 }
