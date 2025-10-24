@@ -13,6 +13,9 @@ fn main() {
     let _ = write!(stdout, "{}", replace(&buf, &words, &glyphs));
 }
 
+/// Expand the regular expressions so that all prefixes are matched. E.g., a
+/// single ("⌽", [["rev","erse"]]) would yield
+/// (["⌽","⌽","⌽","⌽","⌽"], ["rev","reve","rever","revers","reverse"])
 fn expand(inp: &[(&str, Vec<Vec<&str>>)]) -> (Vec<String>, Vec<String>) {
     fn prefixes<'a>(repl: &'a [&str]) -> Box<dyn Iterator<Item = String> + 'a> {
         match repl {
@@ -38,6 +41,7 @@ fn expand(inp: &[(&str, Vec<Vec<&str>>)]) -> (Vec<String>, Vec<String>) {
         .unzip()
 }
 
+/// Replace words with symbols.
 fn replace(inp: &str, from: &[String], to: &[String]) -> String {
     let mut res = String::new();
     let mut end = 0;
