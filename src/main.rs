@@ -50,9 +50,7 @@ fn replace(inp: &str, from: &[String], to: &[String]) -> String {
         .build(from)
         .unwrap();
 
-    let commnt = r#"((^|[^'])#[^\n]*(\n|$))"#;
-    let string = r#"""|"(""|[^'])([^"]|"")*""#;
-    Regex::new(&format!("(?m:{commnt}|{string})")) // excludes
+    Regex::new(r#"(?m:'.?'|#[^\n]*(\n|$)|"([^"]|"")*")"#) // excludes
         .unwrap()
         .captures_iter(inp)
         .map(|c| c.get(0).unwrap())
@@ -92,7 +90,7 @@ fn replace_slice(repl: &AhoCorasick, slice: &str, to: &[String], res: &mut Strin
 fn unknown_expansion_in_word(slice: &str, ms: &[Match], m: &Match, i: usize) -> bool {
     let max: usize = m.end()
         + slice[m.end()..]
-            .find(|c: char| !c.is_ascii_alphabetic())
+            .find(|c: char| !(c.is_ascii_alphabetic() || c == '_'))
             .unwrap_or(slice[m.end()..].len());
     let ends: Vec<&Match> = ms[i..].iter().take_while(move |n| n.end() <= max).collect();
     // First condition shields against adddivunknown and second one is for
@@ -184,13 +182,13 @@ static GLYPHS_WORDS: LazyLock<Vec<(&str, Vec<Vec<&str>>)>> = LazyLock::new(|| {
         ("𝕏", vec![vec!["XX"]]),
         ("𝕨", vec![vec!["ww"]]),
         ("𝕎", vec![vec!["WW"]]),
-        ("𝕗", vec![vec!["fff"]]),
-        ("𝔽", vec![vec!["FFF"]]),
-        ("𝕘", vec![vec!["ggg"]]),
-        ("𝔾", vec![vec!["GGG"]]),
-        ("𝕣", vec![vec!["rrr"]]),
-        ("𝕤", vec![vec!["sss"]]),
-        ("𝕊", vec![vec!["SSS"]]),
+        ("𝕗", vec![vec!["ff"]]),
+        ("𝔽", vec![vec!["FF"]]),
+        ("𝕘", vec![vec!["gg"]]),
+        ("𝔾", vec![vec!["GG"]]),
+        ("𝕣", vec![vec!["rr"]]),
+        ("𝕤", vec![vec!["ss"]]),
+        ("𝕊", vec![vec!["SS"]]),
     ]
     .into()
 });
@@ -231,7 +229,7 @@ s ← "a string mul and ""so on ×"""
     fn char_quote() {
         use super::*;
         let (glyphs, words) = expand(&GLYPHS_WORDS);
-        let s = r#"sss'"'sss'"'sss"#;
+        let s = r#"ss'"'ss'"'ss"#;
         assert!(r#"𝕤'"'𝕤'"'𝕤"# == replace(s, &words, &glyphs));
     }
 
@@ -239,7 +237,7 @@ s ← "a string mul and ""so on ×"""
     fn char_hash() {
         use super::*;
         let (glyphs, words) = expand(&GLYPHS_WORDS);
-        let s = r#"sss'#'sss"#;
+        let s = r#"ss'#'ss"#;
         assert!(r#"𝕤'#'𝕤"# == replace(s, &words, &glyphs));
     }
 
@@ -265,5 +263,13 @@ s ← "a string mul and ""so on ×"""
         assert!("1⌽⌽𝕩" == replace("1⌽reve𝕩", &words, &glyphs));
         assert!("+´" == replace("addfold", &words, &glyphs));
         assert!("addunknownadd ×´" == replace("addunknownadd mulfold", &words, &glyphs));
+    }
+
+    #[test]
+    fn strings() {
+        use super::*;
+        let (glyphs, words) = expand(&GLYPHS_WORDS);
+        let s = r#"classTag ← ""‿"" ∾ > {⟨"<span class='"∾𝕩∾"'>","</span>"⟩}¨ 1↓classes"#;
+        assert!(s == replace(s, &words, &glyphs))
     }
 }
