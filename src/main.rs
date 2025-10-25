@@ -18,13 +18,17 @@ fn main() {
     let mut r = Replace::Known;
     let args: Vec<String> = env::args().skip(1).collect();
     match args.iter().map(|s| s as &str).collect::<Vec<_>>()[..] {
-        ["--help", ..] => {
+        ["-h" | "--help", ..] => {
             println!(
                 r#"bqn-fmt: Word-based input of BQN symbols.
+
 USAGE: bqn-fmt [-u|--unknown-words]
 OPTIONS:
+  -h,--help		Show this help text.
   -u,--unknown-words	Expand variable even if it contains unknown
-                        words: addunk → +unk"#
+                        words: addunk → +unk.
+
+Read all of standard input, and return to standard out."#
             );
             exit(0);
         },
