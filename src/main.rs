@@ -17,10 +17,14 @@ fn main() {
 
     let mut r = Replace::Known;
     let args: Vec<String> = env::args().skip(1).collect();
-    match args.iter().map(|s| s as &str).collect::<Vec<_>>()[..] {
-        ["-h" | "--help", ..] => {
-            println!(
-                r#"bqn-fmt: Word-based input of BQN symbols.
+    for arg in args.iter().map(|s| s as &str) {
+        match arg {
+            "-u" | "--unknown-words" => {
+                r = Replace::Unknown;
+            },
+            "-h" | "--help" => {
+                println!(
+                    r#"bqn-fmt: Word-based input of BQN symbols.
 
 USAGE: bqn-fmt [-u|--unknown-words]
 OPTIONS:
@@ -29,13 +33,11 @@ OPTIONS:
                         words: addunk → +unk.
 
 Read all of standard input, and return to standard out."#
-            );
-            exit(0);
-        },
-        ["-u" | "--unknown-words", ..] => {
-            r = Replace::Unknown;
-        },
-        _ => {},
+                );
+                exit(0);
+            },
+            _ => {},
+        }
     }
 
     let _ = stdin.read_to_string(&mut buf);
