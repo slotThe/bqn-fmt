@@ -1,7 +1,13 @@
-use std::{io::{Read, Write}, iter, sync::LazyLock};
+use std::{env, io::{Read, Write}, iter, process::exit, sync::LazyLock};
 
 use aho_corasick::{AhoCorasick, Match, MatchKind};
 use regex::Regex;
+
+#[derive(Debug)]
+enum Replace {
+    Unknown,
+    Known,
+}
 
 fn main() {
     let mut stdin = std::io::stdin();
@@ -9,8 +15,27 @@ fn main() {
     let mut buf = String::new();
     let (glyphs, words) = expand(&GLYPHS_WORDS);
 
+    let mut r = Replace::Known;
+    let args: Vec<String> = env::args().skip(1).collect();
+    match args.iter().map(|s| s as &str).collect::<Vec<_>>()[..] {
+        ["--help", ..] => {
+            println!(
+                r#"bqn-fmt: Word-based input of BQN symbols.
+USAGE: bqn-fmt [-u|--unknown-words]
+OPTIONS:
+  -u,--unknown-words	Expand variable even if it contains unknown
+                        words: addunk → +unk"#
+            );
+            exit(0);
+        },
+        ["-u" | "--unknown-words", ..] => {
+            r = Replace::Unknown;
+        },
+        _ => {},
+    }
+
     let _ = stdin.read_to_string(&mut buf);
-    let _ = write!(stdout, "{}", replace(&buf, &words, &glyphs));
+    let _ = write!(stdout, "{}", replace(&buf, &words, &glyphs, &r));
 }
 
 /// Expand the regular expressions so that all prefixes are matched. E.g., a
@@ -42,10 +67,10 @@ fn expand(inp: &[(&str, Vec<Vec<&str>>)]) -> (Vec<String>, Vec<String>) {
 }
 
 /// Replace words with symbols.
-fn replace(inp: &str, from: &[String], to: &[String]) -> String {
+fn replace(inp: &str, from: &[String], to: &[String], r: &Replace) -> String {
     let mut res = String::with_capacity(inp.len()); // res is shorter
     let mut end = 0;
-    let repl = AhoCorasick::builder()
+    let re = AhoCorasick::builder()
         .match_kind(MatchKind::LeftmostLongest)
         .build(from)
         .unwrap();
@@ -55,17 +80,23 @@ fn replace(inp: &str, from: &[String], to: &[String]) -> String {
         .captures_iter(inp)
         .map(|c| c.get(0).unwrap())
         .for_each(|e| {
-            replace_slice(&repl, &inp[end..e.start()], to, &mut res); // Region before match -> replace.
+            replace_slice(&re, &inp[end..e.start()], to, &mut res, r); // Region before match -> replace.
             res.push_str(e.as_str()); // Add last excluded region unchanged.
             end = e.end();
         });
-    replace_slice(&repl, &inp[end..inp.len()], to, &mut res); // Add final region.
+    replace_slice(&re, &inp[end..inp.len()], to, &mut res, r); // Add final region.
 
     res
 }
 
 /// Replace a single slice.
-fn replace_slice(repl: &AhoCorasick, slice: &str, to: &[String], res: &mut String) {
+fn replace_slice(
+    repl: &AhoCorasick,
+    slice: &str,
+    to: &[String],
+    res: &mut String,
+    r: &Replace,
+) {
     let mut dst = String::with_capacity(slice.len());
     let matches: Vec<Match> = repl.find_iter(slice).collect();
     let mut lm = 0; // last match
@@ -73,9 +104,7 @@ fn replace_slice(repl: &AhoCorasick, slice: &str, to: &[String], res: &mut Strin
     for (i, m) in matches.iter().enumerate() {
         dst.push_str(&slice[lm..m.start()]);
         lm = m.end();
-        if dst.ends_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-            || unknown_expansion_in_word(slice, &matches, m, i)
-        {
+        if dst.ends_with('_') || r.dont_replace()(&dst, slice, &matches, m, i) {
             dst.push_str(&slice[m.start()..m.end()]);
         } else {
             dst.push_str(to[m.pattern()].as_ref());
@@ -86,17 +115,27 @@ fn replace_slice(repl: &AhoCorasick, slice: &str, to: &[String], res: &mut Strin
     res.push_str(&dst);
 }
 
-/// Is there an unknown expansion in the first word of the given slice?
-fn unknown_expansion_in_word(slice: &str, ms: &[Match], m: &Match, i: usize) -> bool {
-    let max: usize = m.end()
-        + slice[m.end()..]
-            .find(|c: char| !(c.is_ascii_alphabetic() || c == '_'))
-            .unwrap_or(slice[m.end()..].len());
-    let ends: Vec<&Match> = ms[i..].iter().take_while(move |n| n.end() <= max).collect();
-    // First condition shields against adddivunknown and second one is for
-    // addunknowndiv.
-    ends[ends.len() - 1].end() != max
-        || ends.windows(2).any(|xy| xy[0].end() != xy[1].start())
+impl Replace {
+    fn dont_replace(&self) -> fn(&str, &str, &[Match], &Match, usize) -> bool {
+        match self {
+            Replace::Unknown => |_, _, _, _, _| false,
+            Replace::Known => |dst, slice, ms, m, i| {
+                dst.ends_with(|c: char| c.is_ascii_alphabetic()) || {
+                    // Unknown expansion in the first word of the slice?
+                    let max: usize = m.end()
+                        + slice[m.end()..]
+                            .find(|c: char| !(c.is_ascii_alphabetic() || c == '_'))
+                            .unwrap_or(slice[m.end()..].len());
+                    let ends: Vec<&Match> =
+                        ms[i..].iter().take_while(move |n| n.end() <= max).collect();
+                    // First condition shields against adddivunknown and
+                    // second one is for addunknowndiv.
+                    ends[ends.len() - 1].end() != max
+                        || ends.windows(2).any(|xy| xy[0].end() != xy[1].start())
+                }
+            },
+        }
+    }
 }
 
 #[allow(clippy::type_complexity)]
