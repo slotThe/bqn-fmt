@@ -89,11 +89,11 @@ fn replace(inp: &str, from: &[String], to: &[String], r: &Replace) -> String {
     res
 }
 
-/// Replace a single slice.
+/// Replace words in a single slice.
 fn replace_slice(
     repl: &AhoCorasick,
     slice: &str,
-    to: &[String],
+    glyphs: &[String],
     res: &mut String,
     r: &Replace,
 ) {
@@ -107,7 +107,7 @@ fn replace_slice(
         if dst.ends_with('_') || r.dont_replace()(&dst, slice, &matches, m, i) {
             dst.push_str(&slice[m.start()..m.end()]);
         } else {
-            dst.push_str(to[m.pattern()].as_ref());
+            dst.push_str(glyphs[m.pattern()].as_ref());
         }
     }
     dst.push_str(&slice[lm..]);
@@ -116,6 +116,7 @@ fn replace_slice(
 }
 
 impl Replace {
+    /// Strategy for when to *not* replace a word.
     fn dont_replace(&self) -> fn(&str, &str, &[Match], &Match, usize) -> bool {
         match self {
             Replace::Unknown => |_, _, _, _, _| false,
@@ -234,81 +235,87 @@ static GLYPHS_WORDS: LazyLock<Vec<(&str, Vec<Vec<&str>>)>> = LazyLock::new(|| {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    static GLS: LazyLock<(Vec<String>, Vec<String>)> =
+        LazyLock::new(|| expand(&GLYPHS_WORDS));
+    static GLYPHS: LazyLock<Vec<String>> = LazyLock::new(|| GLS.0.clone());
+    static WORDS: LazyLock<Vec<String>> = LazyLock::new(|| GLS.1.clone());
+
+    fn srep(s: &str) {
+        let repk = replace(s, &WORDS, &GLYPHS, &Replace::Known);
+        let repu = replace(s, &WORDS, &GLYPHS, &Replace::Unknown);
+        assert!(s == repk, "{}", repk);
+        assert!(s == repu, "{}", repu);
+    }
+
+    fn drep(orig: &str, res: &str) {
+        let repk = replace(orig, &WORDS, &GLYPHS, &Replace::Known);
+        let repu = replace(orig, &WORDS, &GLYPHS, &Replace::Unknown);
+        assert!(res == repk, "{}", repk);
+        assert!(res == repu, "{}", repu);
+    }
+
+    fn rdrep(orig: &str, resk: &str, resu: &str) {
+        let repk = replace(orig, &WORDS, &GLYPHS, &Replace::Known);
+        let repu = replace(orig, &WORDS, &GLYPHS, &Replace::Unknown);
+        assert!(resk == repk, "{}", repk);
+        assert!(resu == repu, "{}", repu);
+    }
+
     #[test]
     fn simple() {
-        use super::*;
         let s = r#"
 # Comment mul
 v ← mul # mul is ×
 s ← "a string mul and ""so on ×"""
 "#;
-        let (glyphs, words) = expand(&GLYPHS_WORDS);
-        let res = replace(s, &words, &glyphs);
+        let res = replace(s, &WORDS, &GLYPHS, &Replace::Known);
         assert!(res.contains("v ← ×"));
         assert!(res.contains(r#"s ← "a string mul and ""so on ×""""#));
     }
 
     #[test]
-    fn underscore() {
-        use super::*;
-        let (glyphs, words) = expand(&GLYPHS_WORDS);
-        let res = replace("P ← 32‿1•bit._add⌾⌽", &words, &glyphs);
-        assert!(res == "P ← 32‿1•bit._add⌾⌽");
-    }
+    fn underscore() { srep("P ← 32‿1•bit._add⌾⌽"); }
 
     #[test]
     fn totp_idempotent() {
-        use super::*;
-        let (glyphs, words) = expand(&GLYPHS_WORDS);
-        let s = std::fs::read_to_string("./test_data/totp.bqn").unwrap();
-        assert!(s == replace(&s, &words, &glyphs));
+        srep(&std::fs::read_to_string("./test_data/totp.bqn").unwrap());
     }
 
     #[test]
-    fn char_quote() {
-        use super::*;
-        let (glyphs, words) = expand(&GLYPHS_WORDS);
-        let s = r#"ss'"'ss'"'ss"#;
-        assert!(r#"𝕤'"'𝕤'"'𝕤"# == replace(s, &words, &glyphs));
-    }
+    fn char_quote() { drep(r#"ss'"'ss'"'ss"#, r#"𝕤'"'𝕤'"'𝕤"#); }
 
     #[test]
-    fn char_hash() {
-        use super::*;
-        let (glyphs, words) = expand(&GLYPHS_WORDS);
-        let s = r#"ss'#'ss"#;
-        assert!(r#"𝕤'#'𝕤"# == replace(s, &words, &glyphs));
-    }
+    fn char_hash() { drep(r#"ss'#'ss"#, r#"𝕤'#'𝕤"#); }
 
     #[test]
     fn char_string_concat() {
-        use super::*;
-        let (glyphs, words) = expand(&GLYPHS_WORDS);
-        assert!("\"not\"'#'¬" == replace("\"not\"'#'not", &words, &glyphs));
-        let s1 = r#"-⟜'#'"not""#;
-        assert!(s1 == replace(s1, &words, &glyphs));
-        let s2 = r#"negateafter'#'"mul""not""fold"add"#;
-        assert!(r#"-⟜'#'"mul""not""fold"+"# == replace(s2, &words, &glyphs));
-    }
-
-    #[test]
-    fn dont_expand_unknown_vars() {
-        use super::*;
-        let (glyphs, words) = expand(&GLYPHS_WORDS);
-        assert!("xxWord +´÷≠" == replace("xxWord addfolddivlen", &words, &glyphs));
-        assert!("wordxx" == replace("wordxx", &words, &glyphs));
-        assert!("addfoldWord" == replace("addfoldWord", &words, &glyphs));
-        assert!("|10" == replace("mod10", &words, &glyphs));
-        assert!("1⌽⌽𝕩" == replace("1⌽reve𝕩", &words, &glyphs));
-        assert!("+´" == replace("addfold", &words, &glyphs));
-        assert!("addunknownadd ×´" == replace("addunknownadd mulfold", &words, &glyphs));
+        drep("\"not\"'#'not", "\"not\"'#'¬");
+        srep(r#"-⟜'#'"not""#);
+        drep(
+            r#"negateafter'#'"mul""not""fold"add"#,
+            r#"-⟜'#'"mul""not""fold"+"#,
+        )
     }
 
     #[test]
     fn strings() {
-        use super::*;
-        let (glyphs, words) = expand(&GLYPHS_WORDS);
         let s = r#"classTag ← ""‿"" ∾ > {⟨"<span class='"∾𝕩∾"'>","</span>"⟩}¨ 1↓classes"#;
-        assert!(s == replace(s, &words, &glyphs))
+        rdrep(
+            s,
+            s,
+            r#"cla𝕤Tag ← ""‿"" ∾ > {⟨"<span class='"∾𝕩∾"'>","</span>"⟩}¨ 1↓cla𝕤es"#,
+        )
+    }
+
+    #[test]
+    fn expand_unknown_vars() {
+        rdrep("xxWord addfolddivlen", "xxWord +´÷≠", "𝕩Word +´÷≠");
+        rdrep("wordxx", "wordxx", "word𝕩");
+        rdrep("addfoldWord", "addfoldWord", "+´Word");
+        drep("mod10", "|10");
+        drep("1⌽reve𝕩", "1⌽⌽𝕩");
+        drep("addfold", "+´");
+        rdrep("addunknownadd mulfold", "addunknownadd ×´", "+unknown+ ×´");
     }
 }
