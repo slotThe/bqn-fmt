@@ -235,6 +235,7 @@ static GLYPHS_WORDS: LazyLock<Vec<(&str, Vec<Vec<&str>>)>> = LazyLock::new(|| {
         ("𝕣", vec![vec!["rr"]]),
         ("𝕤", vec![vec!["ss"]]),
         ("𝕊", vec![vec!["SS"]]),
+        ("•", vec![vec!["syst", "em"], vec!["bull", "et"]]),
     ]
     .into()
 });
